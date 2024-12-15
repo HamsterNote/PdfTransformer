@@ -2,12 +2,19 @@
 import { getDocument, GlobalWorkerOptions, PDFDocumentProxy } from 'pdfjs-dist';
 import { DocumentTransformer, readDocument } from '@DocumentKit/transformer';
 import { Page } from '@DocumentKit/types/Page';
+import { Text } from '@DocumentKit/types/Text';
 import { Document } from '@DocumentKit/types/Document';
+import { TextItem, TextMarkedContent } from 'pdfjs-dist/types/src/display/api';
+import md5 from 'md5';
 
 // @ts-ignore
 import('pdfjs-dist/build/pdf.worker.min.mjs').then(src => {
 	GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.min.mjs', import.meta.url).href;
 })
+
+function getPageId(pageNumber: number, docHash: string) {
+	return `${docHash}-${pageNumber}`;
+}
 
 export class PdfTransformer extends DocumentTransformer {
 	static extension = 'pdf';
@@ -49,17 +56,68 @@ export class PdfTransformer extends DocumentTransformer {
 		const pageNum = pdf.numPages;
 		return {
 			id: this.hash,
-			pages: new Array(pageNum).fill(0).map((_, index) => `${this.hash}-${index}`),
+			pages: new Array(pageNum).fill(0).map((_, index) => getPageId(index + 1, this.hash)),
 			version: PdfTransformer.version,
 		}
 	}
 
-	async getPage(): Promise<Page | undefined> {
+	async getPage(index: number): Promise<Page | undefined> {
+		// 读取某一页
+		const pdf = this.pdfDocProxy;
+		if (!pdf) {
+			return undefined;
+		}
+		console.log(await pdf.getAttachments());
+		console.log(await pdf.getOutline());
+		console.log(await pdf.getCalculationOrderIds());
+		console.log(await pdf.getDownloadInfo());
+		console.log(await pdf.getFieldObjects());
+		console.log(await pdf.getMarkInfo());
+		console.log(await pdf.getMetadata());
+		const page = await pdf.getPage(index);
+		console.log(await page.getAnnotations());
+		for (const a of await page.getAnnotations()) {
+			console.log(await pdf.getDestination(a.id));
+		}
+		console.log(await page.getStructTree());
+		console.log(await page.getOperatorList());
+		console.log(await page.getJSActions());
+		const viewport = page.getViewport({ scale: 1 });
+		const texts = await page.getTextContent();
+		const pageId = getPageId(index, this.hash);
+		const styles = texts.styles;
 		return {
-			id: `page-123123`,
-			height: 0,
-			width: 0,
-			texts: [],
+			id: pageId,
+			height: viewport.height,
+			width: viewport.width,
+			lang: texts.lang,
+			texts: texts.items.map(text => {
+				const isTextItem = Object.keys(text).includes('hasEOL') && Object.keys(text).includes('str');
+				if (isTextItem) {
+					const _text = text as TextItem;
+					const currentTextStyles = styles[_text.fontName];
+					return {
+						id: md5(`${_text.str}-${_text.transform.join(',')}-${_text.width}-${_text.height}`),
+						content: _text.str,
+						hasEOL: _text.hasEOL,
+						lang: texts.lang,
+						width: _text.width,
+						height: _text.height,
+						dir: _text.dir,
+						position: {
+							x: 0,
+							y: 0,
+						},
+						style: {
+							writingMode: currentTextStyles.vertical ? 'vertical-lr' : undefined,
+							transform: `matrix(${_text.transform.join(',')})`,
+							...currentTextStyles,
+						},
+					};
+				} else {
+					return undefined;
+				}
+			}).filter(Boolean) as Text[],
 		};
 	}
 	async getCover() {
