@@ -3,7 +3,7 @@ import { getDocument, GlobalWorkerOptions, PDFDocumentProxy } from 'pdfjs-dist';
 import { DocumentTransformer, readDocument } from '@DocumentKit/transformer';
 import { Page } from '@DocumentKit/types/Page';
 import { Text } from '@DocumentKit/types/Text';
-import { Document } from '@DocumentKit/types/Document';
+import { Document, DocumentAnchor } from '@DocumentKit/types/Document';
 import { TextItem, TextMarkedContent } from 'pdfjs-dist/types/src/display/api';
 import md5 from 'md5';
 
@@ -14,6 +14,20 @@ import('pdfjs-dist/build/pdf.worker.min.mjs').then(src => {
 
 function getPageId(pageNumber: number, docHash: string) {
 	return `${docHash}-${pageNumber}`;
+}
+
+type DestWithPosition = [{ num: number; gen: number; }, { name: 'XYZ' }, number, number, number];
+
+async function destToAnchor(pdf: PDFDocumentProxy, pages: string[], dest: DestWithPosition): Promise<DocumentAnchor | undefined> {
+	const pageIndex = await pdf.getPageIndex(dest[0]);
+	const pageId = pageIndex !== undefined ? pages[pageIndex] : undefined;
+	return pageId ? {
+		pageId,
+		position: {
+			x: dest[3],
+			y: dest[4],
+		},
+	} : undefined;
 }
 
 export class PdfTransformer extends DocumentTransformer {
@@ -54,10 +68,21 @@ export class PdfTransformer extends DocumentTransformer {
 			return undefined;
 		}
 		const pageNum = pdf.numPages;
+		const pages = new Array(pageNum).fill(0).map((_, index) => getPageId(index + 1, this.hash));
 		return {
 			id: this.hash,
-			pages: new Array(pageNum).fill(0).map((_, index) => getPageId(index + 1, this.hash)),
+			pages,
 			version: PdfTransformer.version,
+			outline: await Promise.all((await pdf.getOutline()).map(async (o) => {
+				return {
+					title: o.title,
+					anchor: o.dest instanceof Array ? await destToAnchor(pdf, pages, o.dest as DestWithPosition) : undefined,
+					style: {
+						color: `rgb(${o.color[0] || 0},${o.color[1] || 0},${o.color[2] || 0})`,
+						fontWeight: o.bold ? 'bold' : undefined,
+					},
+				};
+			})),
 		}
 	}
 
@@ -84,6 +109,7 @@ export class PdfTransformer extends DocumentTransformer {
 		console.log(await page.getJSActions());
 		const viewport = page.getViewport({ scale: 1 });
 		const texts = await page.getTextContent();
+		console.log(texts.items);
 		const pageId = getPageId(index, this.hash);
 		const styles = texts.styles;
 		return {
