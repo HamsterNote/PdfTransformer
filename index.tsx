@@ -6,6 +6,10 @@ import { Text } from '@DocumentKit/types/Text';
 import { Document, DocumentAnchor } from '@DocumentKit/types/Document';
 import { TextItem, TextMarkedContent } from 'pdfjs-dist/types/src/display/api';
 import md5 from 'md5';
+import { Number2 } from '@/types/Math';
+import { ReactElement } from 'react';
+import PdfDocument from '@/plugins/document/transformer/PdfTransformer/Document';
+import HamsterDocument from '@DocumentKit/Document';
 
 // @ts-ignore
 import('pdfjs-dist/build/pdf.worker.min.mjs').then(src => {
@@ -41,6 +45,15 @@ export class PdfTransformer extends DocumentTransformer {
 	static extension = 'pdf';
 	static version = 1;
 	private pdfDocProxy: PDFDocumentProxy | undefined;
+	private document: PdfDocument | undefined;
+	async loadFile(file: File) {
+		const pdfArrayBuffer = await readDocument(file);
+		const pdf = await getDocument(pdfArrayBuffer).promise;
+		this.document = new PdfDocument(this.hash, pdf);
+	}
+	getDocument() {
+		return this.document as HamsterDocument | undefined;
+	}
 	private async getPageBg(pageNumber: number): Promise<string | undefined> {
 		const pdf = this.pdfDocProxy;
 		if (!pdf) {
@@ -70,7 +83,7 @@ export class PdfTransformer extends DocumentTransformer {
 		const pdf = await getDocument(pdfArrayBuffer).promise;
 		this.pdfDocProxy = pdf;
 	}
-	async getDocument(): Promise<Document | undefined> {
+	async getDocument1(): Promise<Document | undefined> {
 		const pdf = this.pdfDocProxy;
 		if (!pdf) {
 			return undefined;
@@ -121,10 +134,23 @@ export class PdfTransformer extends DocumentTransformer {
 		// console.log(texts.items);
 		const pageId = getPageId(index, this.hash);
 		const styles = texts.styles;
+		// text偏移基准点
+		const originPoint: Number2 = {
+			x: viewport.viewBox[0] + viewport.transform[4], y: viewport.viewBox[1] + viewport.transform[5],
+		};
+		const canvas = document.createElement('canvas');
+		const context = canvas.getContext('2d');
+		const pageRender = context && page.render({
+			canvasContext: context,
+			viewport,
+		});
+		pageRender?.promise.then(res => {
+			console.log(res);
+		});
 		return {
 			id: pageId,
-			height: viewport.height,
-			width: viewport.width,
+			height: viewport.viewBox[2],
+			width: viewport.viewBox[3],
 			lang: texts.lang,
 			style: {
 				background: await this.getPageBg(index),
@@ -145,8 +171,8 @@ export class PdfTransformer extends DocumentTransformer {
 						height: _text.height,
 						dir: _text.dir,
 						position: {
-							x: `${(_text.transform[4] || 0) / viewport.width * 100}%`,
-							y: `${(viewport.height - (_text.transform[5] || 0) + 2 - fontSize) / viewport.height * 100}%`,
+							x: `${(((_text.transform[4] + viewport.transform[4])) || 0) / viewport.viewBox[2] * 100}%`,
+							y: `${(viewport.viewBox[3] - ((_text.transform[5] + viewport.transform[5]) || 0) + 2 - fontSize) / viewport.viewBox[3] * 100}%`,
 						},
 						style: {
 							writingMode: currentTextStyles.vertical ? 'vertical-lr' : undefined,
@@ -160,6 +186,39 @@ export class PdfTransformer extends DocumentTransformer {
 				}
 			}).filter(Boolean) as Text[],
 		};
+	}
+
+	async renderPage(index: number, textLayer: HTMLDivElement, background: HTMLCanvasElement): Promise<void> {
+		// 读取某一页
+		const pdf = this.pdfDocProxy;
+		if (!pdf) {
+			return;
+		}
+		// console.log(await pdf.getAttachments());
+		// console.log(await pdf.getOutline());
+		// console.log(await pdf.getCalculationOrderIds());
+		// console.log(await pdf.getDownloadInfo());
+		// console.log(await pdf.getFieldObjects());
+		// console.log(await pdf.getMarkInfo());
+		// console.log(await pdf.getMetadata());
+		const page = await pdf.getPage(index);
+		// console.log(await page.getAnnotations());
+		// for (const a of await page.getAnnotations()) {
+			// console.log(await pdf.getDestination(a.id));
+		// }
+		// console.log(await page.getStructTree());
+		// console.log(await page.getOperatorList());
+		// console.log(await page.getJSActions());
+		const viewport = page.getViewport({ scale: 1, dontFlip: true });
+		// console.log(texts.items);
+		const context = background.getContext('2d');
+		const pageRender = context && page.render({
+			canvasContext: context,
+			viewport,
+		});
+		await pageRender?.promise.then(res => {
+			console.log(res);
+		});
 	}
 
 	async getPageViewport(index: number) {
