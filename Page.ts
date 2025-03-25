@@ -14,9 +14,9 @@ export default class PdfPage extends HamsterPage {
 	async init() {
 		this.page = await this.documentProxy.getPage(this.pageNum);
 	}
-	async getViewport({ scale }: { scale: number }): Promise<{ width: number; height: number } | undefined> {
+	getViewport({ scale }: { scale: number }): { width: number; height: number } | undefined {
 		const viewport = this.page?.getViewport({ scale });
-		return viewport && { width: viewport.width, height: viewport.height};
+		return viewport ? { width: viewport.width, height: viewport.height} : { width: 0, height: 0 };
 	}
 	async getNumber(): Promise<number> {
 		return this.pageNum;
