@@ -35,7 +35,12 @@ export default class PdfPage extends HamsterPage {
 					canvasContext: ctx,
 					viewport: this.page.getViewport({ scale }),
 				}).promise;
-				return canvas.toDataURL();
+				// return '';
+				return new Promise<string>(resolve => {
+					requestIdleCallback(() => {
+						resolve(canvas.toDataURL());
+					})
+				});
 			}
 		}
 		return '';
@@ -51,10 +56,14 @@ export default class PdfPage extends HamsterPage {
 			return textLayerDiv;
 		}
 		const textContent = await page.getTextContent();
-		const textLayer = new TextLayer({
-			textContentSource: textContent,
-			viewport: page.getViewport({ scale }),
-			container: textLayerDiv,
+		const textLayer = await new Promise<TextLayer>(resolve => {
+			requestIdleCallback(() => {
+				resolve(new TextLayer({
+					textContentSource: textContent,
+					viewport: page.getViewport({ scale }),
+					container: textLayerDiv,
+				}));
+			})
 		});
 
 		await textLayer.render();
